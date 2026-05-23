@@ -59,6 +59,7 @@ Copy-Item (Join-Path $nx "RUNTIME.md") (Join-Path $stage "RUNTIME.md")
 $outPath = Join-Path $repo $OutZip
 if (Test-Path $outPath) { Remove-Item $outPath -Force }
 Write-Host "Compressing $stage -> $outPath ..."
-Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $outPath -CompressionLevel Optimal
+# ONNX weights are essentially incompressible; Fastest avoids wasting CPU.
+Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $outPath -CompressionLevel Fastest
 $sizeGb = (Get-Item $outPath).Length / 1GB
 Write-Host ("Wrote {0} ({1:F2} GB)" -f $outPath, $sizeGb)
