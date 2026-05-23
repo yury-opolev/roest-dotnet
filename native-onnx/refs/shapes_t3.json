@@ -1,0 +1,19 @@
+{
+  "t3_inputs_embeds": [
+    2,
+    62,
+    1024
+  ],
+  "t3_hidden_last": [
+    2,
+    1024
+  ],
+  "t3_logits_step0": [
+    2,
+    8194
+  ],
+  "t3_speech_head_weight": [
+    8194,
+    1024
+  ]
+}

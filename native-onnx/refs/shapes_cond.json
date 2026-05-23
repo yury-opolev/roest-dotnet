@@ -1,0 +1,30 @@
+{
+  "cond_mic_t3_cond_emb": [
+    1,
+    34,
+    1024
+  ],
+  "cond_mic_prompt_feat": [
+    1,
+    500,
+    80
+  ],
+  "cond_mic_xvector": [
+    1,
+    192
+  ],
+  "cond_nic_t3_cond_emb": [
+    1,
+    34,
+    1024
+  ],
+  "cond_nic_prompt_feat": [
+    1,
+    500,
+    80
+  ],
+  "cond_nic_xvector": [
+    1,
+    192
+  ]
+}

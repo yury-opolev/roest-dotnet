@@ -1,0 +1,7 @@
+{
+  "start_speech_token": 6561,
+  "stop_speech_token": 6562,
+  "speech_tokens_dict_size": 8194,
+  "hidden_size": 1024,
+  "is_multilingual": true
+}

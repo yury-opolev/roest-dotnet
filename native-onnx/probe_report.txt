@@ -1,0 +1,27 @@
+torch 2.6.0+cu124 device=cuda
+
+--- running one generate() to capture real inputs ---
+generate ok, wav shape (1, 48960)
+
+--- captured sub-module inputs ---
+
+[ve]
+  args: tuple[Tensor(22, 160, 40):torch.float32]
+  kwargs: {}
+
+######################################################################
+EXPORT ATTEMPTS
+######################################################################
+
+[voice_encoder] EXPORT OK -> /work/onnx_models/voice_encoder.onnx (5.8 MB)
+
+######################################################################
+SUMMARY MATRIX
+######################################################################
+  voice_encoder                OK  (5.8 MB)
+  speaker_encoder_campplus     not attempted (no captured input)
+  hift_vocoder                 not attempted (no captured input)
+  s3gen_flow                   not attempted (no captured input)
+
+NOTE: T3 (autoregressive Llama) is probed separately — it needs a
+decode-step wrapper, not a single forward call.

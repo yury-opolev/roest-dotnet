@@ -1,0 +1,30 @@
+trying dynamo export of full HiFT vocoder (incl. iSTFT)...
+DYNAMO EXPORT FAILED: ConversionError: Failed to decompose the FX graph for ONNX compatibility. [96mThis is step 2/3[0m of exporting the model to ONNX. Next steps:
+- Create an issue in the PyTorch GitHub repository against the [96m*torc
+t, cache_source),
+  File "/opt/venv/lib/python3.10/site-packages/torch/onnx/__init__.py", line 351, in export
+    return _compat.export_compat(
+  File "/opt/venv/lib/python3.10/site-packages/torch/onnx/_internal/exporter/_compat.py", line 304, in export_compat
+    onnx_program = _core.export(
+  File "/opt/venv/lib/python3.10/site-packages/torch/onnx/_internal/exporter/_core.py", line 1351, in export
+    raise _errors.ConversionError(
+torch.onnx._internal.exporter._errors.ConversionError: Failed to decompose the FX graph for ONNX compatibility. [96mThis is step 2/3[0m of exporting the model to ONNX. Next steps:
+- Create an issue in the PyTorch GitHub repository against the [96m*torch.export*[0m component and attach the full error stack as well as reproduction scripts.
+- Create an error report with `torch.onnx.export(..., report=True)`, and save the ExportedProgram as a pt2 file. Create an issue in the PyTorch GitHub repository against the [96m*onnx*[0m component. Attach the error report and the pt2 model.
+
+## Exception summary
+
+<class 'RuntimeError'>: cannot mutate tensors with frozen storage
+
+While executing %copy_ : [num_users=0] = call_function[target=torch.ops.aten.copy_.default](args = (%slice_4, %div), kwargs = {})
+Original traceback:
+File "/work/export/05_vocoder_dynamo_retry.py", line 55, in forward
+    out = s.m.inference(speech_feat=speech_feat, cache_source=cache_source)
+  File "/opt/venv/lib/python3.10/site-packages/chatterbox/models/s3gen/hifigan.py", line 276, in forward
+    sine_wavs, uv, _ = self.l_sin_gen(x.transpose(1, 2))
+  File "/opt/venv/lib/python3.10/site-packages/chatterbox/models/s3gen/hifigan.py", line 209, in forward
+    F_mat[:, i: i + 1, :] = f0 * (i + 1) / self.sampling_rate
+
+(Refer to the full stack trace above for more information.)
+
+RESULT: vocoder needs the 'export-minus-iSTFT + C# overlap-add' fallback.

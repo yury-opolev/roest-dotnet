@@ -1,0 +1,25 @@
+services:
+  tts:
+    build:
+      context: ./server
+    image: danish-voice-tts:spike
+    container_name: danish-voice-tts
+    ports:
+      - "8000:8000"
+    volumes:
+      # HuggingFace cache survives container rebuilds — the 500 M weights
+      # are downloaded once and reused.
+      - hf_cache:/root/.cache/huggingface
+      # Mount the app so server tweaks need only a restart, not a rebuild.
+      - ./server/app.py:/app/app.py:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf_cache:

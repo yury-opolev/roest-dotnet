@@ -1,0 +1,23 @@
+{
+  "t3_cond_emb": [
+    1,
+    34,
+    1024
+  ],
+  "t3_text_emb_weight": [
+    2454,
+    1024
+  ],
+  "t3_speech_emb_weight": [
+    8194,
+    1024
+  ],
+  "t3_text_pos_emb_weight": [
+    2050,
+    1024
+  ],
+  "t3_speech_pos_emb_weight": [
+    4100,
+    1024
+  ]
+}

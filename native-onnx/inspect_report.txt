@@ -1,0 +1,85 @@
+torch 2.6.0+cu124  device=cuda  cuda_avail=True
+model_dir=/root/.cache/huggingface/hub/models--CoRal-project--roest-v3-chatterbox-500m/snapshots/cd451fdc474aabd229fa0c6b6818f4b34382917e
+files: ['.locks', 'CACHEDIR.TAG', 'Cangjie5_TC.json', '_ref_mic.wav', '_ref_nic.wav', 'audio_samples', 'conds.pt', 'grapheme_mtl_merged_expanded_v1.json', 'models--ResembleAI--chatterbox', 'mtl_tokenizer.json', 's3gen.pt', 't3_23lang.safetensors', 't3_mtl23ls_v2.safetensors', 'tokenizer.json', 've.pt', 've.safetensors']
+
+model class: <class 'chatterbox.mtl_tts.ChatterboxMultilingualTTS'>
+model.sr = 24000
+model public attrs: ['DEC_COND_LEN', 'ENC_COND_LEN', 'conds', 'device', 'from_local', 'from_pretrained', 'generate', 'get_supported_languages', 'prepare_conditionals', 's3gen', 'sr', 't3', 'tokenizer', 've', 'watermarker']
+
+======================================================================
+t3: chatterbox.models.t3.t3.T3
+======================================================================
+  total params: 535,989,248
+  - tfmr: LlamaModel (503,387,136 params)
+      - embed_tokens: Embedding (8,192)
+      - layers: ModuleList (503,377,920)
+      - norm: LlamaRMSNorm (1,024)
+      - rotary_emb: LlamaRotaryEmbedding (0)
+  - cond_enc: T3CondEnc (4,497,408 params)
+      - spkr_enc: Linear (263,168)
+      - emotion_adv_fc: Linear (1,024)
+      - perceiver: Perceiver (4,233,216)
+  - text_emb: Embedding (2,512,896 params)
+  - speech_emb: Embedding (8,390,656 params)
+  - text_pos_emb: LearnedPositionEmbeddings (2,099,200 params)
+      - emb: Embedding (2,099,200)
+  - speech_pos_emb: LearnedPositionEmbeddings (4,198,400 params)
+      - emb: Embedding (4,198,400)
+  - text_head: Linear (2,512,896 params)
+  - speech_head: Linear (8,390,656 params)
+
+======================================================================
+s3gen: chatterbox.models.s3gen.s3gen.S3Token2Wav
+======================================================================
+  total params: 263,933,767
+  - tokenizer: S3Tokenizer (123,714,568 params)
+      - encoder: AudioEncoderV2 (123,704,320)
+      - quantizer: FSQVectorQuantization (10,248)
+  - speaker_encoder: CAMPPlus (6,848,544 params)
+      - head: FCM (86,048)
+      - xvector: Sequential (6,762,496)
+  - flow: CausalMaskedDiffWithXvec (112,549,360 params)
+      - input_embedding: Embedding (3,359,232)
+      - spk_embed_affine_layer: Linear (15,440)
+      - encoder: UpsampleConformerEncoder (37,831,168)
+      - encoder_proj: Linear (41,040)
+      - decoder: CausalConditionalCFM (71,302,480)
+  - mel2wav: HiFTGenerator (20,821,295 params)
+      - m_source: SourceModuleHnNSF (10)
+      - f0_upsamp: Upsample (0)
+      - conv_pre: ParametrizedConv1d (287,744)
+      - ups: ModuleList (2,516,288)
+      - source_downs: ModuleList (153,664)
+      - source_resblocks: ModuleList (3,719,040)
+      - resblocks: ModuleList (10,862,208)
+      - conv_post: ParametrizedConv1d (8,100)
+      - reflection_pad: ReflectionPad1d (0)
+      - f0_predictor: ConvRNNF0Predictor (3,274,241)
+
+======================================================================
+ve: chatterbox.models.voice_encoder.voice_encoder.VoiceEncoder
+======================================================================
+  total params: 1,423,618
+  - lstm: LSTM (1,357,824 params)
+  - proj: Linear (65,792 params)
+
+[tokenizer] type=<class 'chatterbox.models.tokenizers.tokenizer.MTLTokenizer'> (not nn.Module)
+   attrs: ['cangjie_converter', 'check_vocabset_sot_eot', 'decode', 'encode', 'preprocess_text', 'text_to_tokens', 'tokenizer']
+
+[conds] type=<class 'chatterbox.mtl_tts.Conditionals'> (not nn.Module)
+   attrs: ['gen', 'load', 'save', 't3', 'to']
+
+######################################################################
+FORWARD / GENERATE SIGNATURES
+######################################################################
+
+t3.forward(*, t3_cond: chatterbox.models.t3.modules.cond_enc.T3Cond, text_tokens: torch.LongTensor, text_token_lens: torch.LongTensor, speech_tokens: torch.LongTensor, speech_token_lens: torch.LongTensor, training=False)
+   t3 candidate methods: ['forward', 'inference', 'inference_turbo', 'register_forward_hook', 'register_forward_pre_hook']
+
+s3gen.forward(speech_tokens, ref_wav: Optional[torch.Tensor], ref_sr: Optional[int], ref_dict: Optional[dict] = None, finalize: bool = False, speech_token_lens=None, skip_vocoder=False, n_cfm_timesteps=None, noised_mels=None)
+   s3gen candidate methods: ['flow', 'flow_inference', 'forward', 'hift_inference', 'inference', 'register_forward_hook', 'register_forward_pre_hook']
+
+ve.forward(mels: torch.FloatTensor)
+   ve candidate methods: ['forward', 'inference', 'register_forward_hook', 'register_forward_pre_hook']
+
+model.generate(text, language_id, audio_prompt_path=None, exaggeration=0.5, cfg_weight=0.5, temperature=0.8, repetition_penalty=2.0, min_p=0.05, top_p=1.0)

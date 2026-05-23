@@ -1,0 +1,63 @@
+{
+  "flow_input_embedding_weight": [
+    6561,
+    512
+  ],
+  "flow_spk_affine_weight": [
+    80,
+    192
+  ],
+  "flow_spk_affine_bias": [
+    80
+  ],
+  "flow_encoder_proj_weight": [
+    80,
+    512
+  ],
+  "flow_encoder_proj_bias": [
+    80
+  ],
+  "flow_mu": [
+    1,
+    80,
+    602
+  ],
+  "flow_mask": [
+    1,
+    1,
+    602
+  ],
+  "flow_spks": [
+    1,
+    80
+  ],
+  "flow_cond": [
+    1,
+    80,
+    602
+  ],
+  "flow_z": [
+    1,
+    80,
+    602
+  ],
+  "flow_mel_out": [
+    1,
+    80,
+    602
+  ],
+  "flow_encoder_in": [
+    1,
+    301,
+    512
+  ],
+  "flow_h": [
+    1,
+    602,
+    512
+  ],
+  "flow_xvector": [
+    1,
+    192
+  ]
+}

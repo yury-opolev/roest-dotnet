@@ -1,0 +1,46 @@
+torch 2.6.0+cu124 device=cuda
+
+--- generate() to capture vocoder + flow-decoder inputs ---
+generate ok, wav (1, 54720)
+
+[flow_dec] args: tuple[]  kwargs: {mu:Tensor(1, 80, 614):torch.float32, mask:Tensor(1, 1, 614):torch.float32, spks:Tensor(1, 80):torch.float32, cond:Tensor(1, 80, 614):torch.float32, n_timesteps:int=10, noised_mels:NoneType=None, meanflow:bool=False}
+
+[hift] args: tuple[]  kwargs: {speech_feat:Tensor(1, 80, 114):torch.float32, cache_source:Tensor(1, 1, 0):torch.float32}
+
+attempting HiFT vocoder export; speech_feat Tensor(1, 80, 114):torch.float32
+
+[hift_vocoder] EXPORT FAILED:
+ apped_call_impl
+/opt/venv/lib/python3.10/site-packages/torch/jit/_trace.py(129): wrapper
+/opt/venv/lib/python3.10/site-packages/torch/jit/_trace.py(138): forward
+/opt/venv/lib/python3.10/site-packages/torch/nn/modules/module.py(1750): _call_impl
+/opt/venv/lib/python3.10/site-packages/torch/nn/modules/module.py(1739): _wrapped_call_impl
+/opt/venv/lib/python3.10/site-packages/torch/jit/_trace.py(1498): _get_trace_graph
+/opt/venv/lib/python3.10/site-packages/torch/onnx/utils.py(844): _trace_and_get_graph_from_model
+/opt/venv/lib/python3.10/site-packages/torch/onnx/utils.py(937): _create_jit_graph
+/opt/venv/lib/python3.10/site-packages/torch/onnx/utils.py(1053): _model_to_graph
+/opt/venv/lib/python3.10/site-packages/torch/onnx/utils.py(1428): _export
+/opt/venv/lib/python3.10/site-packages/torch/onnx/utils.py(495): export
+/opt/venv/lib/python3.10/site-packages/torch/onnx/__init__.py(383): export
+/work/export/03_probe_vocoder_flow.py(87): try_export
+/work/export/03_probe_vocoder_flow.py(113): main
+/work/export/03_probe_vocoder_flow.py(138): <module>
+)
+
+    Inputs:
+        #0: 1687 defined in (%1687 : Float(*, *, *, strides=[54736, 54736, 1], requires_grad=0, device=cuda:0) = onnx::Pad[mode="reflect"](%1660, %1686), scope: __main__.main.<locals>.HiftWrap:: # /opt/venv/lib/python3.10/site-packages/torch/nn/functional.py:5209:0
+    )  (type 'Tensor')
+        #1: 1696 defined in (%1696 : int[] = prim::ListConstruct(%1691, %1695), scope: __main__.main.<locals>.HiftWrap::
+    )  (type 'List[int]')
+    Outputs:
+        #0: 1697 defined in (%1697 : Float(*, *, strides=[54736, 1], requires_grad=0, device=cuda:0) = onnx::Reshape[allowzero=0](%1687, %1696), scope: __main__.main.<locals>.HiftWrap:: # /opt/venv/lib/python3.10/site-packages/torch/functional.py:708:0
+    )  (type 'Tensor')
+
+
+[cfm_decoder] EXPORT OK -> 302.0 MB
+
+############################################################
+MATRIX
+############################################################
+  hift_vocoder     FAIL: SymbolicValueError: STFT does not currently support complex types  [Caused by the value '1697 defined in (%1697 : Float(*, *, strides=[54736, 1], requires_grad=0, device=cuda:0) = 
+  cfm_decoder      OK (302.0 MB)
