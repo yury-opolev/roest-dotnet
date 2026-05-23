@@ -4,21 +4,28 @@ using DanishVoice.Native.Flow;
 using DanishVoice.Native.T3;
 using DanishVoice.Native.Tokenizer;
 
-// Native synthesis CLI:  dotnet run -- synth <root> <voice> <out.wav> <text...>
+// Native synthesis CLI (uses the public library facade):
+//   dotnet run -- synth <root> <voice> <out.wav> [--cuda] <text...>
 if (args.Length >= 5 && args[0] == "synth")
 {
     var synthRoot = args[1];
     var voice = args[2];
     var outWav = args[3];
-    var text = string.Join(' ', args[4..]);
-    using var pipeline = new SynthPipeline(Path.Combine(synthRoot, "onnx_models"),
-                                           Path.Combine(synthRoot, "refs"));
-    Console.WriteLine($"Synthesizing [{voice}]: {text}");
+    var rest = args[4..];
+    var provider = ExecutionProvider.Cpu;
+    if (rest.Length > 0 && rest[0] == "--cuda")
+    {
+        provider = ExecutionProvider.Cuda;
+        rest = rest[1..];
+    }
+    var text = string.Join(' ', rest);
+
+    using var tts = new DanishVoiceTts(synthRoot, provider);
+    Console.WriteLine($"Synthesizing [{voice}] on {tts.ActiveProvider}: {text}");
     var sw = System.Diagnostics.Stopwatch.StartNew();
-    var wav = pipeline.Synth(text, voice);
+    tts.SynthesizeToWav(text, voice, outWav);
     sw.Stop();
-    WriteWav(outWav, wav, 24000);
-    Console.WriteLine($"Wrote {outWav} ({wav.Length} samples, {wav.Length / 24000.0:F2}s) in {sw.Elapsed.TotalSeconds:F1}s");
+    Console.WriteLine($"Wrote {outWav} in {sw.Elapsed.TotalSeconds:F1}s");
     return;
 }
 
@@ -256,34 +263,8 @@ Console.WriteLine("\n== Test 8: end-to-end chain (flow + vocoder) ==");
     TensorIo.Report("e2e_wav (NSF stochastic in ref)", vtrace.Wav.AsSpan(0, n), wavRef.AsSpan(0, n), 5e-2);
 
     // write the C# wav for listening
-    WriteWav(Path.Combine(root, "native_csharp_out.wav"), vtrace.Wav, 24000);
+    WavWriter.Write(Path.Combine(root, "native_csharp_out.wav"), vtrace.Wav, 24000);
     Console.WriteLine($"  wrote native_csharp_out.wav ({vtrace.Wav.Length} samples)");
 }
 
 Console.WriteLine("\nDone.");
-
-static void WriteWav(string path, float[] samples, int sampleRate)
-{
-    using var fs = new FileStream(path, FileMode.Create);
-    using var bw = new BinaryWriter(fs);
-    var n = samples.Length;
-    var byteRate = sampleRate * 2;
-    bw.Write("RIFF"u8.ToArray());
-    bw.Write(36 + n * 2);
-    bw.Write("WAVE"u8.ToArray());
-    bw.Write("fmt "u8.ToArray());
-    bw.Write(16);
-    bw.Write((short)1);
-    bw.Write((short)1);
-    bw.Write(sampleRate);
-    bw.Write(byteRate);
-    bw.Write((short)2);
-    bw.Write((short)16);
-    bw.Write("data"u8.ToArray());
-    bw.Write(n * 2);
-    foreach (var s in samples)
-    {
-        var v = (short)Math.Clamp(s * 32767f, -32768f, 32767f);
-        bw.Write(v);
-    }
-}

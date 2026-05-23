@@ -21,7 +21,7 @@ internal sealed class SynthPipeline : IDisposable
     private readonly int stopTextToken;
     private readonly int stopSpeechToken;
 
-    public SynthPipeline(string onnxDir, string refsDir)
+    public SynthPipeline(string onnxDir, string refsDir, bool useCuda = false)
     {
         this.refsDir = refsDir;
         foreach (var s in new[] { "shapes.json", "shapes_t3.json", "shapes_t3loop.json",
@@ -31,9 +31,9 @@ internal sealed class SynthPipeline : IDisposable
         }
 
         this.tokenizer = new MtlTokenizer(Path.Combine(refsDir, "grapheme_tokenizer.json"));
-        this.t3 = new T3Model(onnxDir, refsDir);
-        this.flow = new FlowModel(onnxDir, refsDir);
-        this.vocoder = new Vocoder(onnxDir, refsDir);
+        this.t3 = new T3Model(onnxDir, refsDir, useCuda);
+        this.flow = new FlowModel(onnxDir, refsDir, useCuda);
+        this.vocoder = new Vocoder(onnxDir, refsDir, useCuda);
 
         using var sp = JsonDocument.Parse(File.ReadAllText(Path.Combine(refsDir, "text_specials.json")));
         this.startTextToken = sp.RootElement.GetProperty("start_text_token").GetInt32();
