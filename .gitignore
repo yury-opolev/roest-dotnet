@@ -35,7 +35,7 @@ samples_native/
 # Release build artifacts (uploaded to GitHub Releases, not committed)
 release-artifacts/
 *.nupkg
-danish-voice-native-runtime.zip
+*.zip
 
 # IDE
 .idea/

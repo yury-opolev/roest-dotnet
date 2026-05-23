@@ -18,8 +18,12 @@ refs/          tokenizer + configs + embedding tables + per-voice (Mic/Nic)
 
 ## Use it from another project
 
-1. Download and unzip the release asset somewhere, e.g. `C:\models\danish-voice`.
-   Keep `t3_backbone.onnx` and `t3_backbone.onnx.data` side by side.
+1. Download **both** release zips (split to stay under GitHub's 2 GiB asset
+   limit) and unzip **both into the same folder**, e.g. `C:\models\roest-dotnet`:
+   - `roest-dotnet-runtime-part1-t3.zip` — the T3 backbone weights
+   - `roest-dotnet-runtime-part2.zip` — everything else
+   They merge into `onnx_models/` + `refs/` (so `t3_backbone.onnx` and
+   `t3_backbone.onnx.data` end up side by side).
 2. Reference the `DanishVoice.Native` project (or copy its `*.cs`), which depends
    only on `Microsoft.ML.OnnxRuntime`.
 3. Synthesize:
