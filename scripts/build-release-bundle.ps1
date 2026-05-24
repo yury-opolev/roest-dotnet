@@ -19,9 +19,11 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $null = New-Item -ItemType Directory -Path (Join-Path $stage "onnx_models")
 $null = New-Item -ItemType Directory -Path (Join-Path $stage "refs")
 
-# ONNX graphs needed at runtime
+# ONNX graphs needed at runtime. T3 uses the KV-cache graphs (prefill + decode)
+# which share one external-data weights file; the no-cache t3_backbone is not
+# shipped (T3Model only falls back to it when the KV graphs are absent).
 $onnx = @(
-    "t3_backbone.onnx", "t3_backbone.onnx.data",
+    "t3_prefill.onnx", "t3_decode.onnx", "t3_kv_weights.data",
     "conformer_encoder_dyn.onnx", "cfm_decoder_z.onnx",
     "voc_f0_predictor.onnx", "voc_conv_stack.onnx"
 )

@@ -8,7 +8,7 @@
     <AssemblyName>DanishVoice.Native</AssemblyName>
     <!-- NuGet packaging metadata -->
     <PackageId>DanishVoice.Native</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Description>Native in-process Danish TTS (CoRal Røst-v3) via ONNX Runtime. No Python at inference.</Description>
   </PropertyGroup>
 
