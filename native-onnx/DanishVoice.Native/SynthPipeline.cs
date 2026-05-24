@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using DanishVoice.Native.Flow;
 using DanishVoice.Native.T3;
@@ -20,6 +21,7 @@ internal sealed class SynthPipeline : IDisposable
     private readonly int startTextToken;
     private readonly int stopTextToken;
     private readonly int stopSpeechToken;
+    private readonly ConcurrentDictionary<string, VoiceConditioning> condCache = new();
 
     public SynthPipeline(string onnxDir, string refsDir, bool useCuda = false)
     {
@@ -51,43 +53,49 @@ internal sealed class SynthPipeline : IDisposable
         Array.Copy(ids, 0, textTokens, 1, ids.Length);
         textTokens[^1] = this.stopTextToken;
 
-        // 2. per-voice conditioning
-        var condEmb = TensorIo.Load(this.refsDir, $"cond_{voice}_t3_cond_emb");
-        var lenCond = TensorIo.Shape($"cond_{voice}_t3_cond_emb")[1];
-        var promptFeat = TensorIo.Load(this.refsDir, $"cond_{voice}_prompt_feat");
-        var xvector = TensorIo.Load(this.refsDir, $"cond_{voice}_xvector");
-        using var meta = JsonDocument.Parse(File.ReadAllText(Path.Combine(this.refsDir, $"cond_{voice}_meta.json")));
-        var melLen1 = meta.RootElement.GetProperty("mel_len1").GetInt32();
-        using var ptDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(this.refsDir, $"cond_{voice}_prompt_token.json")));
-        var promptToken = ptDoc.RootElement[0].EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        // 2. per-voice conditioning (cached; independent of text)
+        var cond = this.GetConditioning(voice);
 
         // 3. T3 greedy decode
-        Console.WriteLine($"  T3 decoding (greedy, CPU)...");
-        var speech = this.t3.Generate(condEmb, lenCond, textTokens, maxNewTokens);
-        // drop trailing stop-speech token
+        var speech = this.t3.Generate(cond.CondEmb, cond.LenCond, textTokens, maxNewTokens);
         var speechList = speech.ToList();
         while (speechList.Count > 0 && speechList[^1] == this.stopSpeechToken)
         {
             speechList.RemoveAt(speechList.Count - 1);
         }
-        Console.WriteLine($"  T3 produced {speechList.Count} speech tokens");
 
         // 4. flow: token = prompt_token ++ speech
-        var tokenConcat = new int[promptToken.Length + speechList.Count];
-        Array.Copy(promptToken, tokenConcat, promptToken.Length);
+        var tokenConcat = new int[cond.PromptToken.Length + speechList.Count];
+        Array.Copy(cond.PromptToken, tokenConcat, cond.PromptToken.Length);
         for (var i = 0; i < speechList.Count; i++)
         {
-            tokenConcat[promptToken.Length + i] = speechList[i];
+            tokenConcat[cond.PromptToken.Length + i] = speechList[i];
         }
 
         var t2 = 2 * tokenConcat.Length;
         var z = GaussianNoise(80 * t2, seed);
-        var flowTrace = this.flow.Run(tokenConcat, promptFeat, melLen1, xvector, z);
+        var flowTrace = this.flow.Run(tokenConcat, cond.PromptFeat, cond.MelLen1, cond.Xvector, z);
 
         // 5. vocoder
-        var outFrames = flowTrace.T2 - melLen1;
+        var outFrames = flowTrace.T2 - cond.MelLen1;
         var voc = this.vocoder.Run(flowTrace.MelOut, 80, outFrames);
         return voc.Wav;
+    }
+
+    private VoiceConditioning GetConditioning(string voice)
+    {
+        return this.condCache.GetOrAdd(voice, v =>
+        {
+            var condEmb = TensorIo.Load(this.refsDir, $"cond_{v}_t3_cond_emb");
+            var lenCond = TensorIo.Shape($"cond_{v}_t3_cond_emb")[1];
+            var promptFeat = TensorIo.Load(this.refsDir, $"cond_{v}_prompt_feat");
+            var xvector = TensorIo.Load(this.refsDir, $"cond_{v}_xvector");
+            using var meta = JsonDocument.Parse(File.ReadAllText(Path.Combine(this.refsDir, $"cond_{v}_meta.json")));
+            var melLen1 = meta.RootElement.GetProperty("mel_len1").GetInt32();
+            using var ptDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(this.refsDir, $"cond_{v}_prompt_token.json")));
+            var promptToken = ptDoc.RootElement[0].EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            return new VoiceConditioning(condEmb, lenCond, promptFeat, xvector, melLen1, promptToken);
+        });
     }
 
     private static float[] GaussianNoise(int n, int seed)
