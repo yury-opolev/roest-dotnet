@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DanishVoice.Native.Cli" />
+    <InternalsVisibleTo Include="DanishVoice.Native.Tests" />
   </ItemGroup>
 
 </Project>
