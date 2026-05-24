@@ -7,6 +7,10 @@ Python** at inference time: the ONNX graphs + reference tensors.
 > The weights derive from CoRal **Røst-v3** (OpenRAIL); base Chatterbox is MIT.
 > See `NOTICE.md`. By using these assets you accept the OpenRAIL use restrictions.
 
+> **v0.2.1** is a library-only release: it reuses the **v0.2.0** runtime bundle
+> unchanged (no new ONNX graphs). If you already have the v0.2.0 bundle, you do
+> not need to re-download anything.
+
 ## Contents
 
 ```

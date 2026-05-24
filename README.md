@@ -46,6 +46,20 @@ tts.SynthesizeToWav("Hej, hvordan går det i dag?", "mic", "out.wav");   // 24 k
 // or: float[] samples = tts.Synthesize("...", "nic");
 ```
 
+Streaming (first audio after the first sentence — yields 16-bit PCM per sentence):
+
+```csharp
+await foreach (byte[] pcmChunk in tts.SynthesizeStreamingAsync(
+    "Hej. Hvordan går det i dag? Det er en dejlig dag.", "mic"))
+{
+    // pcmChunk: 24 kHz mono 16-bit little-endian PCM for one sentence
+    audioSink.Write(pcmChunk);
+}
+
+// or one concatenated PCM buffer:
+byte[] pcm = await tts.SynthesizeAsync("…", "mic");
+```
+
 CLI:
 
 ```
