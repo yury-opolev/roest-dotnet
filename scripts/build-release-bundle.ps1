@@ -58,10 +58,24 @@ foreach ($f in $refs) {
 Copy-Item (Join-Path $repo "NOTICE.md") (Join-Path $stage "NOTICE.md")
 Copy-Item (Join-Path $nx "RUNTIME.md") (Join-Path $stage "RUNTIME.md")
 
-$outPath = Join-Path $repo $OutZip
-if (Test-Path $outPath) { Remove-Item $outPath -Force }
-Write-Host "Compressing $stage -> $outPath ..."
-# ONNX weights are essentially incompressible; Fastest avoids wasting CPU.
-Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $outPath -CompressionLevel Fastest
-$sizeGb = (Get-Item $outPath).Length / 1GB
-Write-Host ("Wrote {0} ({1:F2} GB)" -f $outPath, $sizeGb)
+# The full bundle exceeds GitHub's 2 GiB per-asset limit, so split into two:
+#   part1 = the big shared T3 weights file; part2 = everything else.
+# Both preserve the onnx_models/ + refs/ layout so they unzip into one folder.
+$part1 = Join-Path $repo "roest-dotnet-runtime-part1-t3.zip"
+$part2 = Join-Path $repo "roest-dotnet-runtime-part2.zip"
+Remove-Item $part1, $part2 -Force -ErrorAction SilentlyContinue
+
+$weights = "t3_kv_weights.data"
+$p1stage = Join-Path $env:TEMP "dv-rel-part1"
+if (Test-Path $p1stage) { Remove-Item $p1stage -Recurse -Force }
+$null = New-Item -ItemType Directory -Path (Join-Path $p1stage "onnx_models")
+Move-Item (Join-Path $stage "onnx_models\$weights") (Join-Path $p1stage "onnx_models\$weights")
+
+Write-Host "Compressing part1 (T3 weights)..."
+Compress-Archive -Path (Join-Path $p1stage "onnx_models") -DestinationPath $part1 -CompressionLevel NoCompression
+Write-Host "Compressing part2 (graphs + refs)..."
+Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $part2 -CompressionLevel Fastest
+
+"part1: {0:F2} GB" -f ((Get-Item $part1).Length / 1GB)
+"part2: {0:F2} GB" -f ((Get-Item $part2).Length / 1GB)
+Write-Host "Wrote $part1 and $part2"
