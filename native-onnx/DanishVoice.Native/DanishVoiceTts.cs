@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace DanishVoice.Native;
 
 /// <summary>ONNX Runtime execution provider for the native TTS pipeline.</summary>
@@ -23,6 +25,7 @@ public sealed class DanishVoiceTts : IDisposable
     public const int SampleRate = 24000;
 
     private readonly SynthPipeline pipeline;
+    private readonly SemaphoreSlim gate = new(1, 1);
 
     /// <summary>The execution provider actually in use (may differ from the request on CUDA fallback).</summary>
     public ExecutionProvider ActiveProvider { get; }
@@ -68,8 +71,54 @@ public sealed class DanishVoiceTts : IDisposable
         WavWriter.Write(wavPath, samples, SampleRate);
     }
 
+    /// <summary>
+    /// Stream synthesis sentence by sentence. Splits <paramref name="text"/> into
+    /// sentences and yields one 16-bit little-endian PCM chunk (24 kHz mono) per
+    /// sentence as it is ready — first audio after the first sentence. The next
+    /// sentence synthesizes while the caller consumes the current chunk.
+    /// </summary>
+    public async IAsyncEnumerable<byte[]> SynthesizeStreamingAsync(
+        string text, string voice = "mic", int maxNewTokens = 600, int seed = 1234,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var sentences = SentenceChunker.Split(text);
+
+        await this.gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var pcm in PcmSentenceStream.StreamAsync(
+                sentences,
+                (sentence, _) => this.pipeline.Synth(sentence, voice, maxNewTokens, seed),
+                cancellationToken: cancellationToken).ConfigureAwait(false))
+            {
+                yield return pcm;
+            }
+        }
+        finally
+        {
+            this.gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Synthesize the full <paramref name="text"/> and return one concatenated
+    /// 16-bit PCM (24 kHz mono) buffer. Convenience wrapper over the stream.
+    /// </summary>
+    public async Task<byte[]> SynthesizeAsync(
+        string text, string voice = "mic", int maxNewTokens = 600, int seed = 1234,
+        CancellationToken cancellationToken = default)
+    {
+        using var ms = new MemoryStream();
+        await foreach (var pcm in this.SynthesizeStreamingAsync(text, voice, maxNewTokens, seed, cancellationToken).ConfigureAwait(false))
+        {
+            ms.Write(pcm);
+        }
+        return ms.ToArray();
+    }
+
     public void Dispose()
     {
         this.pipeline.Dispose();
+        this.gate.Dispose();
     }
 }
