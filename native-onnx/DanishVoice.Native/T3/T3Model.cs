@@ -13,7 +13,11 @@ namespace DanishVoice.Native.T3;
 /// </summary>
 internal sealed class T3Model : IDisposable
 {
-    private readonly OnnxModel backbone;
+    private readonly OnnxModel? backbone;
+    private readonly OnnxModel? prefill;
+    private readonly OnnxModel? decode;
+    private readonly bool useKvCache;
+    private readonly int nLayers;
     private readonly EmbeddingTables tables;
     private readonly float[] speechHeadWeight; // (vocab, dim)
     private readonly int vocab;
@@ -23,7 +27,6 @@ internal sealed class T3Model : IDisposable
 
     public T3Model(string onnxDir, string refsDir, bool useCuda = false)
     {
-        this.backbone = new OnnxModel(Path.Combine(onnxDir, "t3_backbone.onnx"), useCuda);
         this.tables = new EmbeddingTables(refsDir);
         this.dim = this.tables.Dim;
         var whapes = TensorIo.Shape("t3_speech_head_weight");
@@ -33,6 +36,22 @@ internal sealed class T3Model : IDisposable
         using var cfgDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(refsDir, "t3_config.json")));
         this.startSpeechToken = cfgDoc.RootElement.GetProperty("start_speech_token").GetInt32();
         this.stopSpeechToken = cfgDoc.RootElement.GetProperty("stop_speech_token").GetInt32();
+
+        // Prefer the KV-cache graphs (constant-cost decode) when present; fall
+        // back to the O(n^2) full-sequence backbone otherwise.
+        var prefillPath = Path.Combine(onnxDir, "t3_prefill.onnx");
+        var decodePath = Path.Combine(onnxDir, "t3_decode.onnx");
+        if (File.Exists(prefillPath) && File.Exists(decodePath))
+        {
+            this.prefill = new OnnxModel(prefillPath, useCuda);
+            this.decode = new OnnxModel(decodePath, useCuda);
+            this.nLayers = (this.prefill.OutputNames.Count - 1) / 2; // hidden + (k,v)*L
+            this.useKvCache = true;
+        }
+        else
+        {
+            this.backbone = new OnnxModel(Path.Combine(onnxDir, "t3_backbone.onnx"), useCuda);
+        }
     }
 
     public int[] Generate(
@@ -82,6 +101,11 @@ internal sealed class T3Model : IDisposable
             seq.Add(blk);
         }
 
+        if (this.useKvCache)
+        {
+            return this.GenerateKv(seq, maxNewTokens, temperature, topP, minP, repetitionPenalty, cfgWeight);
+        }
+
         var generated = new List<int> { this.startSpeechToken };
         var outTokens = new List<int>();
 
@@ -97,7 +121,7 @@ internal sealed class T3Model : IDisposable
                 Array.Copy(blk, this.dim, flat, (1 * l + pos) * this.dim, this.dim);
             }
 
-            var outs = this.backbone.Run(new Dictionary<string, (float[], int[])>
+            var outs = this.backbone!.Run(new Dictionary<string, (float[], int[])>
             {
                 ["inputs_embeds"] = (flat, [2, l, this.dim]),
             });
@@ -142,6 +166,91 @@ internal sealed class T3Model : IDisposable
         return [.. outTokens];
     }
 
+    // KV-cached decode: prefill once, then 1 token per step (constant cost).
+    private int[] GenerateKv(
+        List<float[]> seq, int maxNewTokens,
+        float temperature, float topP, float minP, float repetitionPenalty, float cfgWeight)
+    {
+        var prefixLen = seq.Count;
+        var flat = new float[2 * prefixLen * this.dim];
+        for (var pos = 0; pos < prefixLen; pos++)
+        {
+            Array.Copy(seq[pos], 0, flat, (0 * prefixLen + pos) * this.dim, this.dim);
+            Array.Copy(seq[pos], this.dim, flat, (1 * prefixLen + pos) * this.dim, this.dim);
+        }
+
+        var pf = this.prefill!.Run(new Dictionary<string, (float[], int[])>
+        {
+            ["inputs_embeds"] = (flat, [2, prefixLen, this.dim]),
+        });
+        var hidden = pf["hidden"].Data; // (2, prefixLen, dim)
+
+        var cache = new Dictionary<string, (float[], int[])>(2 * this.nLayers);
+        for (var i = 0; i < this.nLayers; i++)
+        {
+            cache[$"past_k{i}"] = pf[$"present_k{i}"];
+            cache[$"past_v{i}"] = pf[$"present_v{i}"];
+        }
+
+        var generated = new List<int> { this.startSpeechToken };
+        var outTokens = new List<int>();
+
+        var tok = this.SampleNext(hidden, prefixLen, generated, temperature, topP, minP, repetitionPenalty, cfgWeight);
+        outTokens.Add(tok);
+        generated.Add(tok);
+
+        for (var step = 1; step < maxNewTokens && tok != this.stopSpeechToken; step++)
+        {
+            var emb = new float[2 * this.dim];
+            this.tables.SpeechEmbedding(tok, step, emb.AsSpan(0, this.dim));
+            this.tables.SpeechEmbedding(tok, step, emb.AsSpan(this.dim, this.dim));
+
+            var inputs = new Dictionary<string, (float[], int[])>(cache)
+            {
+                ["inputs_embeds"] = (emb, [2, 1, this.dim]),
+            };
+            var dec = this.decode!.Run(inputs);
+            for (var i = 0; i < this.nLayers; i++)
+            {
+                cache[$"past_k{i}"] = dec[$"present_k{i}"];
+                cache[$"past_v{i}"] = dec[$"present_v{i}"];
+            }
+
+            tok = this.SampleNext(dec["hidden"].Data, 1, generated, temperature, topP, minP, repetitionPenalty, cfgWeight);
+            outTokens.Add(tok);
+            generated.Add(tok);
+        }
+
+        // mirror the full-sequence path, which appends the stop token then stops
+        return [.. outTokens];
+    }
+
+    // Computes CFG-combined, processed logits from the last position of a
+    // (2, len, dim) hidden tensor and returns the greedy next token.
+    private int SampleNext(
+        float[] hidden, int len, List<int> generated,
+        float temperature, float topP, float minP, float repetitionPenalty, float cfgWeight)
+    {
+        var hCond = new float[this.dim];
+        var hUncond = new float[this.dim];
+        Array.Copy(hidden, (0 * len + (len - 1)) * this.dim, hCond, 0, this.dim);
+        Array.Copy(hidden, (1 * len + (len - 1)) * this.dim, hUncond, 0, this.dim);
+
+        var logitsCond = this.SpeechHead(hCond);
+        var logitsUncond = this.SpeechHead(hUncond);
+        var logits = new float[this.vocab];
+        for (var v = 0; v < this.vocab; v++)
+        {
+            logits[v] = logitsCond[v] + cfgWeight * (logitsCond[v] - logitsUncond[v]);
+        }
+
+        LogitsProcessors.RepetitionPenalty(logits, generated, repetitionPenalty);
+        LogitsProcessors.Temperature(logits, temperature);
+        LogitsProcessors.MinP(logits, minP);
+        LogitsProcessors.TopP(logits, topP);
+        return LogitsProcessors.ArgMax(logits);
+    }
+
     private float[] SpeechHead(float[] hidden)
     {
         var logits = new float[this.vocab];
@@ -160,6 +269,8 @@ internal sealed class T3Model : IDisposable
 
     public void Dispose()
     {
-        this.backbone.Dispose();
+        this.backbone?.Dispose();
+        this.prefill?.Dispose();
+        this.decode?.Dispose();
     }
 }

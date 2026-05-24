@@ -105,9 +105,25 @@ Danmark." (a sentence never used in any reference) renders in both voices,
 ~2 s of audio in ~21 s on CPU.
 
 Current limitations: greedy decoding (deterministic but flatter than temperature
-sampling); CPU execution (~10x slower than real time — CUDA EP makes it fast);
-T3 alignment analyzer not yet ported (greedy stops fine on natural EOS for
-normal sentences). These are quality/speed polish, not correctness gaps.
+sampling); CPU execution (CUDA EP makes it fast); T3 alignment analyzer not yet
+ported (greedy stops fine on natural EOS for normal sentences). These are
+quality polish, not correctness gaps.
+
+### KV-cache (v0.2)
+
+The T3 decode loop now uses a KV cache instead of re-running the full sequence
+each step (O(n) instead of O(n^2)). Two extra graphs exported via the dynamo
+exporter (`native-onnx/export/15_t3_kvcache_export.py`):
+
+- `t3_prefill.onnx` — inputs_embeds (B,L,D) -> hidden + present K/V per layer.
+- `t3_decode.onnx` — inputs_embeds (B,1,D) + past K/V -> hidden + present K/V.
+
+30 layers x (K,V), 16 KV heads, head_dim 64. `T3Model` auto-uses these when
+present and falls back to `t3_backbone.onnx` otherwise. Verified: greedy token
+parity 8/8 identical to the no-cache path; PyTorch decode-step parity 4.8e-6.
+Note: each graph embeds its own ~2 GB weight copy (the dynamo exporter
+duplicates them) — dedupe to a shared external-data file before shipping if
+release size matters.
 
 ## (earlier) end-to-end verification
 
