@@ -81,6 +81,9 @@ if (args.Length >= 5 && args[0] == "synth-stream")
     Console.WriteLine($"Wrote {idx} chunk(s) + combined.wav to {outDir} in {sw.Elapsed.TotalSeconds:F1}s");
 
     // Parity check on single-sentence input: streamed PCM must equal one-shot.
+    // Exact only for pre-normalized input — the stream path runs SentenceChunker
+    // (whitespace normalize + terminal punctuation), so text with double spaces
+    // or a missing terminal '.' would legitimately differ from raw Synthesize.
     if (idx == 1)
     {
         var oneShot = streamTts.Synthesize(streamText, streamVoice);

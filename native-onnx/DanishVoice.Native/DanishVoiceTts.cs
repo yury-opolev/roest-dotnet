@@ -61,12 +61,24 @@ public sealed class DanishVoiceTts : IDisposable
     /// </summary>
     public float[] Synthesize(string text, string voice = "mic", int maxNewTokens = 600, int seed = 1234)
     {
-        return this.pipeline.Synth(text, voice, maxNewTokens, seed);
+        // Serialize against the streaming path: the ONNX sessions are not
+        // concurrency-safe, so all synthesis goes through the same gate.
+        this.gate.Wait();
+        try
+        {
+            return this.pipeline.Synth(text, voice, maxNewTokens, seed);
+        }
+        finally
+        {
+            this.gate.Release();
+        }
     }
 
     /// <summary>Synthesize and write a 16-bit PCM WAV file.</summary>
     public void SynthesizeToWav(string text, string voice, string wavPath, int maxNewTokens = 600, int seed = 1234)
     {
+        // Gated transitively via Synthesize — do not acquire the gate here
+        // (SemaphoreSlim is non-reentrant; a second acquire would deadlock).
         var samples = this.Synthesize(text, voice, maxNewTokens, seed);
         WavWriter.Write(wavPath, samples, SampleRate);
     }

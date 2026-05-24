@@ -52,4 +52,24 @@ public class SentenceChunkerTests
         Assert.True(chunks.Count >= 2);
         Assert.All(chunks, c => Assert.True(c.Length <= 600));
     }
+
+    [Fact]
+    public void Split_FEksAbbreviation_DoesNotBreak()
+    {
+        // "f.eks." (for eksempel) — the headline abbreviation — must not split.
+        var chunks = SentenceChunker.Split("Det virker f.eks. godt. Slut.");
+        Assert.Equal(2, chunks.Count);
+        Assert.Equal("Det virker f.eks. godt.", chunks[0]);
+        Assert.Equal("Slut.", chunks[1]);
+    }
+
+    [Fact]
+    public void Split_OverlongSentenceWithNoClause_ForceSplitsAtWordBoundaries()
+    {
+        // No clause punctuation -> falls back to word-boundary force split.
+        var text = string.Join(' ', Enumerable.Repeat("ord", 300)); // ~1200 chars
+        var chunks = SentenceChunker.Split(text, maxChunkChars: 600);
+        Assert.True(chunks.Count >= 2);
+        Assert.All(chunks, c => Assert.True(c.Length <= 600));
+    }
 }
