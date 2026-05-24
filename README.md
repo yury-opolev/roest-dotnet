@@ -1,147 +1,132 @@
-# danish-voice
+# roest-dotnet
 
-Spike: high-quality Danish text-to-speech callable from a .NET 10 console
-application. Uses [CoRal Røst-v3-Chatterbox-500m](https://huggingface.co/CoRal-project/roest-v3-chatterbox-500m)
-(MOS 4.23/5, includes male and female Danish voices) running in a Docker
-container, with a thin C# CLI talking to it over HTTP.
+Run **CoRal Røst-v3** Danish text-to-speech in .NET. Two ways:
 
-Background research and the design rationale live under [`docs/`](docs/).
+1. **Native, in-process (no Python):** the `DanishVoice.Native` library runs the
+   full model — T3 (Llama) → S3Gen flow → HiFT vocoder — via ONNX Runtime.
+2. **Containerised server:** a Dockerised FastAPI server runs the original
+   PyTorch model, with a thin .NET HTTP client. This is the highest-quality
+   reference path and supports arbitrary text out of the box.
 
-## Architecture
+Two voices: **Mic** (female) and **Nic** (male). Output is 24 kHz mono.
+
+> Built on [CoRal Røst-v3-Chatterbox-500m](https://huggingface.co/CoRal-project/roest-v3-chatterbox-500m)
+> (MOS 4.23/5), a Danish fine-tune of ResembleAI Chatterbox Multilingual.
+> **Model weights are OpenRAIL; this repo's code is MIT.** See
+> [`NOTICE.md`](NOTICE.md) and [`LICENSE`](LICENSE).
+
+---
+
+## Option 1 — Native .NET library (in-process, no Python)
+
+The model is fully reimplemented to run in .NET via `Microsoft.ML.OnnxRuntime`:
+the BPE tokenizer, the T3 autoregressive loop (with KV-cache), the S3Gen flow
+(conformer + flow-matching ODE), and the HiFT vocoder (NSF/STFT/iSTFT as C#
+DSP). Every component is verified for numerical parity against the PyTorch
+reference. See [`native-onnx/FINDINGS.md`](native-onnx/FINDINGS.md) for the full
+conversion story and parity results.
+
+### Get the runtime
+
+1. Add the `DanishVoice.Native` library (NuGet `.nupkg` on the
+   [Releases](https://github.com/yury-opolev/roest-dotnet/releases) page, or
+   project-reference `native-onnx/DanishVoice.Native`).
+2. Download the runtime model bundle from the same release (two zips, split for
+   GitHub's 2 GiB asset limit) and unzip **both into one folder**, e.g.
+   `C:\models\roest-dotnet` — they merge into `onnx_models/` + `refs/`.
+   Details in [`native-onnx/RUNTIME.md`](native-onnx/RUNTIME.md).
+
+### Use it
+
+```csharp
+using DanishVoice.Native;
+
+using var tts = new DanishVoiceTts(@"C:\models\roest-dotnet", ExecutionProvider.Cpu);
+tts.SynthesizeToWav("Hej, hvordan går det i dag?", "mic", "out.wav");   // 24 kHz mono
+// or: float[] samples = tts.Synthesize("...", "nic");
+```
+
+CLI:
 
 ```
-┌────────────────────────────┐    HTTP     ┌────────────────────────────┐
-│  DanishVoice.Cli (.NET 10) │ ──────────► │  TTS server (Docker)       │
-│  - parses CLI args         │  POST       │  FastAPI + Chatterbox      │
-│  - HttpClient              │  /synthesize│  + Røst-v3 model           │
-│  - writes WAV to disk      │ ◄────────── │                            │
-└────────────────────────────┘  audio/wav  └────────────────────────────┘
+dotnet run --project native-onnx/DanishVoice.Native.Cli -c Release -- \
+    synth C:\models\roest-dotnet mic out.wav [--cuda] "Din tekst her"
 ```
 
-## Why a sidecar instead of "native .NET"
+### Execution provider & performance
 
-The model is a 500 M-parameter Llama-based audio LM plus a custom neural
-codec (Resemble's S3) plus a Perth watermark stage — all PyTorch, no ONNX
-export published. Porting it to pure `Microsoft.ML.OnnxRuntime` is a
-realistic engineering project (estimate: 2–4 weeks, with the codec carrying
-most of the risk) but well beyond a spike. The containerised sidecar gets
-you the quality today; the C# side is fully native .NET 10 and depends only
-on a running HTTP endpoint, so swapping the engine later (custom fine-tune,
-ONNX-ified Piper, etc.) is a server-only change.
+- **CPU** by default — correct everywhere, but slow (~seconds per sentence).
+- **CUDA** via `ExecutionProvider.Cuda` (the library uses
+  `Microsoft.ML.OnnxRuntime.Gpu`). Requires **CUDA 12.x + cuDNN 9** runtime
+  libraries on the host; it falls back to CPU automatically if they're missing.
+- T3 uses a **KV-cache** (prefill once, then constant-cost decode steps).
 
-## Prerequisites
+### Current limitations (native path)
 
-- **Docker Desktop** (with WSL2 backend on Windows)
-- **NVIDIA GPU + drivers + Container Toolkit.** Docker Desktop on Windows
-  picks up the GPU automatically once "Enable GPU support" is on in
-  Settings → Resources → WSL Integration / GPU and the NVIDIA driver on the
-  host is recent. Verify with `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`.
-  See "CPU fallback" below if no GPU is available.
-- **.NET 10 SDK**
-- **~5 GB free disk** for the model, CUDA libs and Python deps. First boot
-  downloads ~1 GB of weights from Hugging Face into a named volume
-  (`hf_cache`); subsequent starts are fast.
+- **Greedy decoding** — deterministic, but flatter prosody than the temperature
+  sampling used by the container path. (Output is perceptually equivalent
+  Danish; not bit-identical to PyTorch, which is itself stochastic.)
+- The multilingual **alignment-stream analyzer** (extra anti-hallucination / EOS
+  robustness) is not yet ported; greedy stops on natural EOS for normal text.
+- No Perth watermark (unlike upstream Chatterbox).
 
-## Run — the one-liner
+---
 
-A PowerShell script wraps the whole flow: build the CLI, build+start the
-container, wait for the model to load, then synthesize a test sentence.
+## Option 2 — Containerised server + .NET client
+
+Highest quality, supports arbitrary text and both voices via temperature
+sampling. The model runs in PyTorch inside Docker; a thin .NET 10 CLI calls it
+over HTTP.
+
+### Prerequisites
+
+- Docker Desktop (WSL2 backend on Windows)
+- NVIDIA GPU + drivers + Container Toolkit (enable GPU in Docker Desktop)
+- .NET 10 SDK
+- ~5 GB disk; first boot downloads ~1 GB of weights into the `hf_cache` volume
+
+### Run
 
 ```powershell
+# one-liner: build CLI, start the container, wait for the model, synthesize
 .\scripts\run.ps1
-# -> writes out.wav with the default voice (mic = female) saying
-#    "Hej, hvordan går det?"
-```
-
-Useful flags:
-
-```powershell
 .\scripts\run.ps1 -Text "God morgen!" -Voice nic -Out morning.wav
-.\scripts\run.ps1 -NoSynth                  # boot only, don't synthesize
-.\scripts\run.ps1 -SkipBuild -SkipDocker    # just synthesize against a running stack
-.\scripts\run.ps1 -HealthTimeoutSeconds 900 # longer wait on slow networks
-```
 
-## Run — manually if you prefer
-
-```powershell
-# 1. Start the TTS server (first run downloads the model — wait ~1–3 minutes).
-docker compose up -d --build
-docker compose logs -f tts   # watch until you see "Model loaded"
-
-# 2. Sanity check
-curl http://localhost:8000/health
-
-# 3. Synthesize from the CLI
+# or manually
+docker compose up -d
 dotnet run --project src/DanishVoice.Cli -- "Hej, hvordan går det?"
-# -> writes out.wav in the current directory
-Start-Process out.wav        # play it
 ```
 
-## CLI reference
+CPU fallback and GPU notes are in [`docs/`](docs/) and the compose file.
+
+---
+
+## Repository layout
 
 ```
-DanishVoice.Cli <text> [--voice mic|nic] [--out <path>] [--server <url>]
+src/DanishVoice.Cli/        .NET HTTP client for the container server
+server/                     Dockerised FastAPI + Røst-v3 (PyTorch)
+docker-compose.yml          one-command server boot
+native-onnx/
+  DanishVoice.Native/       the native .NET TTS library (public DanishVoiceTts)
+  DanishVoice.Native.Cli/   parity-test harness + native synth CLI
+  export/                   Python scripts that export the ONNX graphs + tensors
+  RUNTIME.md                how to consume the release runtime bundle
+  FINDINGS.md               full ONNX conversion + parity write-up
+scripts/                    run.ps1 (container), build-release-bundle.ps1
+docs/                       research, datasets, fine-tuning paths, integration
 ```
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `<text>` | — | Danish text to synthesize (required, positional) |
-| `--voice` | `mic` | Speaker. `mic` = female, `nic` = male (per CoRal-TTS dataset metadata) |
-| `--out` | `out.wav` | Output file path |
-| `--server` | `http://localhost:8000` | TTS server base URL |
+## Regenerating the model artifacts
 
-Exit codes: `0` success, `1` bad usage, `2` server unreachable, `3` server
-returned non-2xx.
+The ONNX graphs and reference tensors are produced from the upstream model by
+`native-onnx/export/*.py` (run inside the `danish-voice-tts` Docker image) and
+packed by `scripts/build-release-bundle.ps1`. They are distributed via GitHub
+Releases, not committed to git.
 
-## HTTP API
+## License & attribution
 
-| Method | Path | Body | Response |
-|---|---|---|---|
-| `POST` | `/synthesize` | `{ "text": "...", "voice": "mic" \| "nic" }` | `audio/wav` |
-| `GET` | `/voices` | — | `["mic","nic"]` |
-| `GET` | `/health` | — | `{ "model_loaded": bool, "device": "cpu"\|"cuda", "model": "..." }` |
-
-## CPU fallback
-
-The repo defaults to **GPU (CUDA 12.4)**. If you do not have an NVIDIA GPU
-exposed to Docker, revert to CPU with these edits:
-
-1. `server/Dockerfile`:
-   - Replace `FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04` with
-     `FROM python:3.11-slim`.
-   - Drop the `python3 python3-venv python3-pip` line from `apt install`.
-   - Remove the venv setup (`python3 -m venv /opt/venv` and the
-     `PATH=/opt/venv/bin:$PATH` env var).
-   - Change `--extra-index-url https://download.pytorch.org/whl/cu124` to
-     `https://download.pytorch.org/whl/cpu`.
-2. `docker-compose.yml`:
-   - Delete the `deploy:` block.
-
-Expect ~10–30 s per sentence on a laptop CPU vs. sub-second on a discrete
-GPU.
-
-## Known limitations (it's a spike)
-
-- Synchronous generation, no batching, no streaming.
-- No auth, no HTTPS — bind to `localhost` or run behind a reverse proxy.
-- Voice cloning (zero-shot from a reference clip) is supported by the model
-  but not yet exposed by the API.
-- The exact keyword used by Chatterbox to select between Mic and Nic isn't
-  documented on the model card. `server/app.py` tries `speaker_id`, then
-  `speaker`, then falls back to the default speaker — so the request will
-  always succeed, but voice differentiation may need a tweak once the model
-  is up and we can inspect the library.
-
-## Repo layout
-
-```
-src/DanishVoice.Cli/          .NET 10 console — HttpClient + arg parser
-server/                       FastAPI + Chatterbox, containerised
-  Dockerfile
-  app.py
-  requirements.txt
-docker-compose.yml            One-command boot
-docs/                         Research notes, datasets, fine-tuning paths
-docs/superpowers/specs/       Design document for this spike
-```
+- **Code:** MIT — see [`LICENSE`](LICENSE).
+- **Model weights** (release assets): derived from CoRal **Røst-v3**, licensed
+  **OpenRAIL** (use-based restrictions); base Chatterbox is MIT. © Alexandra
+  Institute / CoRal project and Resemble AI. See [`NOTICE.md`](NOTICE.md).
