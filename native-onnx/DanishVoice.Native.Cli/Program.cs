@@ -29,6 +29,68 @@ if (args.Length >= 5 && args[0] == "synth")
     return;
 }
 
+// Streaming synthesis CLI:
+//   dotnet run -- synth-stream <root> <voice> <outDir> [--cuda] <text...>
+// Writes chunk_000.wav, chunk_001.wav, ... plus combined.wav. When the input is
+// a single sentence, asserts that streamed PCM == one-shot Synthesize PCM.
+if (args.Length >= 5 && args[0] == "synth-stream")
+{
+    var streamRoot = args[1];
+    var streamVoice = args[2];
+    var outDir = args[3];
+    var streamRest = args[4..];
+    var streamProvider = ExecutionProvider.Cpu;
+    if (streamRest.Length > 0 && streamRest[0] == "--cuda")
+    {
+        streamProvider = ExecutionProvider.Cuda;
+        streamRest = streamRest[1..];
+    }
+    var streamText = string.Join(' ', streamRest);
+    Directory.CreateDirectory(outDir);
+
+    using var streamTts = new DanishVoiceTts(streamRoot, streamProvider);
+    Console.WriteLine($"Streaming [{streamVoice}] on {streamTts.ActiveProvider}: {streamText}");
+
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var idx = 0;
+    var combined = new List<byte>();
+    await foreach (var pcm in streamTts.SynthesizeStreamingAsync(streamText, streamVoice))
+    {
+        if (idx == 0)
+        {
+            Console.WriteLine($"  first chunk after {sw.Elapsed.TotalSeconds:F1}s ({pcm.Length} bytes)");
+        }
+        var chunkSamples = new float[pcm.Length / 2];
+        for (var i = 0; i < chunkSamples.Length; i++)
+        {
+            chunkSamples[i] = BitConverter.ToInt16(pcm, i * 2) / 32767f;
+        }
+        WavWriter.Write(Path.Combine(outDir, $"chunk_{idx:D3}.wav"), chunkSamples, DanishVoiceTts.SampleRate);
+        combined.AddRange(pcm);
+        idx++;
+    }
+    sw.Stop();
+
+    var combinedArr = combined.ToArray();
+    var combinedSamples = new float[combinedArr.Length / 2];
+    for (var i = 0; i < combinedSamples.Length; i++)
+    {
+        combinedSamples[i] = BitConverter.ToInt16(combinedArr, i * 2) / 32767f;
+    }
+    WavWriter.Write(Path.Combine(outDir, "combined.wav"), combinedSamples, DanishVoiceTts.SampleRate);
+    Console.WriteLine($"Wrote {idx} chunk(s) + combined.wav to {outDir} in {sw.Elapsed.TotalSeconds:F1}s");
+
+    // Parity check on single-sentence input: streamed PCM must equal one-shot.
+    if (idx == 1)
+    {
+        var oneShot = streamTts.Synthesize(streamText, streamVoice);
+        var oneShotPcm = AudioPcm.FloatToPcm16(oneShot);  // CLI has InternalsVisibleTo
+        var match = combinedArr.AsSpan().SequenceEqual(oneShotPcm);
+        Console.WriteLine($"  single-sentence parity (stream == Synthesize): {(match ? "PASS" : "FAIL")}");
+    }
+    return;
+}
+
 // Parity harness for the native ONNX components built so far.
 // Usage: dotnet run -- <native-onnx-dir>   (defaults to ../ from the project)
 
